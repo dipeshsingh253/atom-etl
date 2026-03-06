@@ -5,7 +5,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.utils import success_response
 from src.db.session import get_db
-from src.modules.query.evaluator import compute_confidence
 from src.modules.query.schemas import Citation, QueryRequest, QueryResponse
 from src.modules.query.service import process_query
 
@@ -33,11 +32,6 @@ async def query_knowledge_base(
         document_id=body.document_id,
     )
 
-    confidence, confidence_reason = await compute_confidence(
-        result=result,
-        query=body.query,
-    )
-
     response_data = QueryResponse(
         answer=result["answer"],
         citations=[
@@ -49,8 +43,6 @@ async def query_knowledge_base(
             )
             for c in result.get("citations", [])
         ],
-        confidence=confidence,
-        confidence_reason=confidence_reason,
     )
 
     return success_response(
