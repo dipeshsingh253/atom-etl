@@ -1,10 +1,11 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.utils import success_response
 from src.db.session import get_db
+from src.modules.documents import service as documents_service
 from src.modules.query.schemas import Citation, QueryRequest, QueryResponse
 from src.modules.query.service import process_query
 
@@ -26,6 +27,10 @@ async def query_knowledge_base(
 
     to generate a grounded answer with citations.
     """
+    document = await documents_service.get_document(db, body.document_id)
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+
     result = await process_query(
         db=db,
         query=body.query,

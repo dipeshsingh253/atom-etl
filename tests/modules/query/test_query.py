@@ -8,9 +8,19 @@ import pytest
 class TestQueryEndpoint:
     """Test cases for POST /api/v1/query."""
 
+    @staticmethod
+    async def _create_document(client) -> str:
+        pdf_content = b"%PDF-1.4 minimal test content"
+        files = {"file": ("query_test.pdf", pdf_content, "application/pdf")}
+        response = await client.post("/api/v1/documents/ingest", files=files)
+        assert response.status_code == 201
+        return response.json()["data"]["document_id"]
+
     @pytest.mark.asyncio
     async def test_query_success(self, client):
         """Test that a valid query returns a response with answer and citations."""
+        document_id = await self._create_document(client)
+
         mock_result = {
             "answer": "Ireland's cyber security sector generated approximately €1.1bn in GVA in 2021.",
             "citations": [
@@ -25,7 +35,10 @@ class TestQueryEndpoint:
         ):
             response = await client.post(
                 "/api/v1/query",
-                json={"query": "What is the total GVA of the cyber security sector?"},
+                json={
+                    "query": "What is the total GVA of the cyber security sector?",
+                    "document_id": document_id,
+                },
             )
 
         assert response.status_code == 200
@@ -39,6 +52,8 @@ class TestQueryEndpoint:
     @pytest.mark.asyncio
     async def test_query_with_document_id(self, client):
         """Test query scoped to a specific document."""
+        document_id = await self._create_document(client)
+
         mock_result = {
             "answer": "Test answer.",
             "citations": [],
@@ -53,7 +68,7 @@ class TestQueryEndpoint:
                 "/api/v1/query",
                 json={
                     "query": "Test question",
-                    "document_id": "some-doc-id",
+                    "document_id": document_id,
                 },
             )
 
@@ -64,11 +79,25 @@ class TestQueryEndpoint:
     @pytest.mark.asyncio
     async def test_query_empty_rejected(self, client):
         """Test that an empty query is rejected."""
+        document_id = await self._create_document(client)
+
         response = await client.post(
             "/api/v1/query",
-            json={"query": ""},
+            json={"query": "", "document_id": document_id},
         )
         assert response.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_query_document_not_found(self, client):
+        """Test query fails fast when document does not exist."""
+        response = await client.post(
+            "/api/v1/query",
+            json={
+                "query": "Test question",
+                "document_id": "missing-document-id",
+            },
+        )
+        assert response.status_code == 404
 
     @pytest.mark.asyncio
     async def test_query_missing_body_rejected(self, client):

@@ -84,7 +84,12 @@ DEBUG=false
 
 ## Local Run (Docker, single flow)
 
-1. Create `.env` in the project root.
+1. Create `.env` from the template:
+
+```bash
+cp .env-example .env
+```
+
 2. Start everything:
 
 ```bash

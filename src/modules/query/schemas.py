@@ -12,9 +12,10 @@ class QueryRequest(BaseModel):
         max_length=2000,
         description="The question to ask about the ingested documents",
     )
-    document_id: Optional[str] = Field(
-        default=None,
-        description="Optional document ID to scope the query to a specific document",
+    document_id: str = Field(
+        ...,
+        min_length=1,
+        description="Document ID to scope the query to a specific document",
     )
 
 

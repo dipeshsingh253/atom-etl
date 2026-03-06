@@ -364,9 +364,17 @@ async def run_agent(
     run_id = uuid.uuid4()
     _log_thought(0, f"Run ID: {run_id}")
 
+    recursion_limit = 25
+
     # Run the graph
     try:
-        final_state = await app.ainvoke(initial_state, config={"run_id": run_id})
+        final_state = await app.ainvoke(
+            initial_state,
+            config={
+                "run_id": run_id,
+                "recursion_limit": recursion_limit,
+            },
+        )
         answer = final_state.get("final_answer", "")
         citations = final_state.get("citations", [])
         total_iterations = final_state.get("iteration_count", 0)
