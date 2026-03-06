@@ -4,7 +4,7 @@ services:
     ports:
       - "8000:8000"
     env_file:
-      - .env.docker
+      - .env
     volumes:
       - uploads:/app/uploads
     depends_on:
@@ -25,7 +25,7 @@ services:
     build: .
     command: ["python", "-m", "dramatiq", "src.workers.tasks"]
     env_file:
-      - .env.docker
+      - .env
     volumes:
       - uploads:/app/uploads
     depends_on:

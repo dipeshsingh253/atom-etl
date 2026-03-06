@@ -126,6 +126,8 @@ class AnswerMatcher:
             elif best_idx - 1 >= 0:
                 best = segments[best_idx - 1] + " " + best
 
+        if len(best) > max_len:
+            return self._best_window(best, max_len)
         return self._truncate(best, max_len)
 
     # -- private helpers ------------------------------------------------------
@@ -444,17 +446,18 @@ async def extract_citations(messages: list, final_answer: str) -> list[dict]:
                 evidence.append(cit)
 
     # ── Deduplicate & prioritise ─────────────────────────────────────────
-    seen: set[str] = set()
+    best_by_key: dict[str, dict] = {}
+    for ev in evidence:
+        key = f"{ev['page']}:{ev['source']}:{ev.get('table_name', '')}"
+        prev = best_by_key.get(key)
+        if prev is None or ev.get("_score", 0) > prev.get("_score", 0):
+            best_by_key[key] = ev
+
     prioritised: list[dict] = []    # pages cited in the answer text
     calculations: list[dict] = []   # math results (page 0)
     secondary: list[dict] = []      # everything else
 
-    for ev in evidence:
-        key = f"{ev['page']}:{ev['source']}:{ev.get('table_name', '')}"
-        if key in seen:
-            continue
-        seen.add(key)
-
+    for ev in best_by_key.values():
         page = ev["page"]
         if page in answer_pages:
             prioritised.append(ev)

@@ -12,7 +12,7 @@ from src.vectorstore.qdrant import init_collection
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    logger.info("Starting up Atom API...")
+    logger.info("Starting up AtomETL...")
     settings = get_settings()
 
     # Create upload directory
@@ -33,5 +33,5 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     yield
 
-    logger.info("Shutting down Atom API...")
+    logger.info("Shutting down AtomETL...")
     logger.info("Cleanup completed successfully")

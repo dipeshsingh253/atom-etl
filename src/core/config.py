@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     )
 
     # Application settings
-    app_name: str = Field(default="Atom API", description="Application name")
+    app_name: str = Field(default="AtomETL", description="Application name")
     app_version: str = Field(default="1.0.0", description="Application version")
     app_description: str = Field(
         default="Autonomous Knowledge System for PDF Documents",
