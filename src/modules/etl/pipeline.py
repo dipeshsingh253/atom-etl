@@ -3,23 +3,23 @@
 import os
 
 from loguru import logger
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.config import get_settings
 from src.modules.documents.model import (
-    Document,
     DocumentTable,
     DocumentVisual,
     TableRow,
     VisualData,
 )
 from src.modules.etl.table_extractor import extract_tables
+from src.modules.etl.table_enricher import enrich_tables
 from src.modules.etl.text_chunker import chunk_pages
 from src.modules.etl.text_extractor import extract_text, get_page_count
 from src.modules.etl.visual_analyzer import analyze_visuals_batch
 from src.modules.etl.visual_extractor import extract_visuals
-from src.providers.factory import get_embedding_provider, get_vision_provider
+from src.modules.documents.service import update_document_status
+from src.providers.factory import get_vision_provider
 from src.vectorstore.qdrant import store_chunks
 
 
@@ -42,12 +42,12 @@ async def run_pipeline(document_id: str, file_path: str, db: AsyncSession) -> No
 
     try:
         # Mark as processing
-        await _update_status(db, document_id, "processing")
+        await update_document_status(db, document_id, "processing")
         logger.info(f"Starting ETL pipeline for document {document_id}")
 
         # --- Page count ---
         total_pages = get_page_count(file_path)
-        await _update_page_count(db, document_id, total_pages)
+        await update_document_status(db, document_id, "processing", total_pages=total_pages)
         logger.info(f"Document has {total_pages} pages")
 
         # --- Step 1: Text extraction & chunking ---
@@ -64,16 +64,20 @@ async def run_pipeline(document_id: str, file_path: str, db: AsyncSession) -> No
         # --- Step 2: Table extraction ---
         logger.info("Step 4: Extracting tables...")
         tables = extract_tables(file_path)
+
+        logger.info("Step 5: Enriching table metadata with LLM...")
+        await enrich_tables(tables)
+
         await _store_tables(db, document_id, tables)
         logger.info(f"Stored {len(tables)} tables in PostgreSQL")
 
         # --- Step 3: Visual extraction & analysis ---
-        logger.info("Step 5: Extracting visual elements...")
+        logger.info("Step 6: Extracting visual elements...")
         figures_dir = os.path.join(settings.upload_dir, "figures", document_id)
         visuals = extract_visuals(file_path, figures_dir)
 
         if visuals:
-            logger.info("Step 6: Analyzing visual elements with vision LLM...")
+            logger.info("Step 7: Analyzing visual elements with vision LLM...")
             vision_provider = get_vision_provider()
             analyzed = await analyze_visuals_batch(visuals, vision_provider)
             await _store_visuals(db, document_id, analyzed)
@@ -82,32 +86,16 @@ async def run_pipeline(document_id: str, file_path: str, db: AsyncSession) -> No
             logger.info("No visual elements found to analyze")
 
         # --- Done ---
-        await _update_status(db, document_id, "completed")
+        await update_document_status(db, document_id, "completed")
         logger.info(f"ETL pipeline completed for document {document_id}")
 
     except Exception as e:
         logger.error(f"ETL pipeline failed for document {document_id}: {e}")
         try:
-            await _update_status(db, document_id, "failed")
+            await update_document_status(db, document_id, "failed")
         except Exception:
             logger.error("Failed to update document status to 'failed'")
         raise
-
-
-async def _update_status(db: AsyncSession, document_id: str, status: str) -> None:
-    result = await db.execute(select(Document).where(Document.id == document_id))
-    doc = result.scalar_one_or_none()
-    if doc:
-        doc.status = status
-        await db.commit()
-
-
-async def _update_page_count(db: AsyncSession, document_id: str, total_pages: int) -> None:
-    result = await db.execute(select(Document).where(Document.id == document_id))
-    doc = result.scalar_one_or_none()
-    if doc:
-        doc.total_pages = total_pages
-        await db.commit()
 
 
 async def _store_tables(
@@ -119,7 +107,10 @@ async def _store_tables(
             document_id=document_id,
             table_name=table_data["table_name"],
             page_number=table_data["page_number"],
-            table_description=f"Headers: {', '.join(table_data['headers'])}",
+            table_description=table_data.get(
+                "table_description",
+                f"Headers: {', '.join(table_data['headers'])}",
+            ),
         )
         db.add(doc_table)
         await db.flush()  # Get the generated ID

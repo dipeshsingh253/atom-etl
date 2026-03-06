@@ -39,36 +39,24 @@ def chunk_pages(
 
         tokens = _ENCODER.encode(content)
 
-        # TODO: Remove the if block even if the text is short. This simplifies the logic and ensures consistent chunking.
-        if len(tokens) <= chunk_size:
+        start = 0
+        while start < len(tokens):
+            end = min(start + chunk_size, len(tokens))
+            chunk_tokens = tokens[start:end]
+            chunk_text = _ENCODER.decode(chunk_tokens)
+
             chunks.append(
                 {
-                    "content": content,
+                    "content": chunk_text,
                     "page_number": page_number,
                     "section": section,
                     "document_id": document_id,
                 }
             )
-        else:
-            # Split into overlapping chunks
-            start = 0
-            while start < len(tokens):
-                end = min(start + chunk_size, len(tokens))
-                chunk_tokens = tokens[start:end]
-                chunk_text = _ENCODER.decode(chunk_tokens)
 
-                chunks.append(
-                    {
-                        "content": chunk_text,
-                        "page_number": page_number,
-                        "section": section,
-                        "document_id": document_id,
-                    }
-                )
-
-                if end >= len(tokens):
-                    break
-                start += chunk_size - chunk_overlap
+            if end >= len(tokens):
+                break
+            start += chunk_size - chunk_overlap
 
     logger.info(
         f"Created {len(chunks)} chunks from {len(pages)} pages "

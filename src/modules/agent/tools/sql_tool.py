@@ -1,5 +1,7 @@
 """SQL tool — queries structured data from PostgreSQL (tables and visual data)."""
 
+import re
+
 from langchain_core.tools import tool
 from loguru import logger
 from sqlalchemy import text
@@ -57,8 +59,8 @@ def get_db_session() -> AsyncSession:
     return _db_session
 
 
-@tool
-async def run_sql_query(sql_query: str) -> str:
+@tool(response_format="content_and_artifact")
+async def run_sql_query(sql_query: str) -> tuple[str, dict | None]:
     """Execute a read-only SQL query against the structured data in PostgreSQL.
 
     Use this tool when you need to retrieve numerical values, table data, chart data,
@@ -77,12 +79,12 @@ async def run_sql_query(sql_query: str) -> str:
     # Safety check — reject non-SELECT queries
     normalized = sql_query.strip().upper()
     if not normalized.startswith("SELECT"):
-        return "Error: Only SELECT queries are allowed. Please provide a read-only query."
+        return "Error: Only SELECT queries are allowed. Please provide a read-only query.", None
 
     dangerous_keywords = ["INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "CREATE", "TRUNCATE"]
     for keyword in dangerous_keywords:
         if keyword in normalized:
-            return f"Error: '{keyword}' operations are not allowed. Only SELECT queries are permitted."
+            return f"Error: '{keyword}' operations are not allowed. Only SELECT queries are permitted.", None
 
     db = get_db_session()
 
@@ -92,23 +94,86 @@ async def run_sql_query(sql_query: str) -> str:
         columns = list(result.keys())
 
         if not rows:
-            return "Query returned no results."
+            return "Query returned no results.", None
 
-        # Format as readable text
+        # Format as readable text for the LLM
         lines: list[str] = []
         lines.append(f"Columns: {', '.join(columns)}")
         lines.append(f"Rows returned: {len(rows)}")
         lines.append("")
 
+        row_dicts: list[dict] = []
         for row in rows[:50]:  # Limit to 50 rows
             row_data = {col: str(val) for col, val in zip(columns, row)}
             lines.append(str(row_data))
+            row_dicts.append(row_data)
 
         if len(rows) > 50:
             lines.append(f"... and {len(rows) - 50} more rows")
 
-        return "\n".join(lines)
+        artifact = {
+            "sql_query": sql_query,
+            "columns": columns,
+            "rows": row_dicts,
+            "row_count": len(rows),
+            # Citation metadata — resolved here so citations.py doesn't parse SQL
+            "is_discovery": _is_discovery_query(sql_query),
+            "table_name": _resolve_table_name(sql_query, row_dicts),
+            "table_description": _resolve_table_description(row_dicts),
+            "page_number": _resolve_page_number(row_dicts),
+        }
+
+        return "\n".join(lines), artifact
 
     except Exception as e:
         logger.error(f"SQL query failed: {e}")
-        return f"SQL query error: {str(e)}"
+        await db.rollback()
+        return f"SQL query error: {str(e)}", None
+
+
+# ── Artifact helpers ─────────────────────────────────────────────────────────
+
+
+def _is_discovery_query(sql_query: str) -> bool:
+    """True for bulk listing queries (e.g. SELECT * FROM document_tables)."""
+    upper = sql_query.upper()
+    if re.search(r"FROM\s+document_tables\b", upper) and "table_rows" not in sql_query.lower():
+        return True
+    if re.search(r"FROM\s+document_visuals\b", upper) and "visual_data" not in sql_query.lower():
+        return True
+    return False
+
+
+def _resolve_table_name(sql_query: str, rows: list[dict]) -> str | None:
+    """Extract table/visual name from the WHERE clause or first result row."""
+    for pattern in (
+        r"table_name\s+(?:LIKE|=|ILIKE)\s+'%?([^%']+)%?'",
+        r"title\s+(?:LIKE|=|ILIKE)\s+'%?([^%']+)%?'",
+    ):
+        m = re.search(pattern, sql_query, re.IGNORECASE)
+        if m:
+            return m.group(1).strip()
+    for row in rows:
+        if row.get("table_name"):
+            return str(row["table_name"]).strip()
+    return None
+
+
+def _resolve_table_description(rows: list[dict]) -> str | None:
+    """Pick up table_description from the first row if present."""
+    for row in rows:
+        if row.get("table_description"):
+            return str(row["table_description"]).strip()
+    return None
+
+
+def _resolve_page_number(rows: list[dict]) -> int | None:
+    """Return the first non-null page_number found in result rows."""
+    for row in rows:
+        val = row.get("page_number")
+        if val is not None:
+            try:
+                return int(val)
+            except (ValueError, TypeError):
+                continue
+    return None

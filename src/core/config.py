@@ -70,6 +70,7 @@ class Settings(BaseSettings):
     ai_provider: str = Field(default="openai", description="AI provider: openai")
     openai_api_key: Optional[str] = Field(default=None, description="OpenAI API key")
     openai_model: str = Field(default="gpt-4o", description="OpenAI chat model")
+    openai_mini_model: str = Field(default="gpt-4o-mini", description="OpenAI mini model for lightweight tasks")
     openai_embedding_model: str = Field(
         default="text-embedding-3-small",
         description="OpenAI embedding model"

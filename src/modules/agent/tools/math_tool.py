@@ -5,8 +5,10 @@ import math
 from langchain_core.tools import tool
 
 
-@tool
-def calculate_cagr(start_value: float, end_value: float, years: float) -> str:
+@tool(response_format="content_and_artifact")
+def calculate_cagr(
+    start_value: float, end_value: float, years: float,
+) -> tuple[str, dict | None]:
     """Calculate the Compound Annual Growth Rate (CAGR).
 
     Formula: CAGR = (end_value / start_value)^(1/years) - 1
@@ -22,23 +24,24 @@ def calculate_cagr(start_value: float, end_value: float, years: float) -> str:
         The CAGR as a percentage string with explanation.
     """
     if start_value <= 0:
-        return "Error: start_value must be positive."
+        return "Error: start_value must be positive.", None
     if end_value <= 0:
-        return "Error: end_value must be positive."
+        return "Error: end_value must be positive.", None
     if years <= 0:
-        return "Error: years must be positive."
+        return "Error: years must be positive.", None
 
     cagr = (end_value / start_value) ** (1 / years) - 1
     percentage = cagr * 100
 
-    return (
+    text = (
         f"CAGR = ({end_value} / {start_value})^(1/{years}) - 1 = {cagr:.6f} = {percentage:.2f}%\n"
         f"This means an average annual growth rate of {percentage:.2f}% over {years} years."
     )
+    return text, {"start_value": start_value, "end_value": end_value, "years": years}
 
 
-@tool
-def calculate_percentage(value: float, total: float) -> str:
+@tool(response_format="content_and_artifact")
+def calculate_percentage(value: float, total: float) -> tuple[str, dict | None]:
     """Calculate what percentage a value is of a total.
 
     Formula: percentage = (value / total) * 100
@@ -51,14 +54,16 @@ def calculate_percentage(value: float, total: float) -> str:
         The percentage with explanation.
     """
     if total == 0:
-        return "Error: total cannot be zero."
+        return "Error: total cannot be zero.", None
 
     percentage = (value / total) * 100
-    return f"{value} is {percentage:.2f}% of {total}"
+    return f"{value} is {percentage:.2f}% of {total}", {"value": value, "total": total}
 
 
-@tool
-def calculate_percentage_change(old_value: float, new_value: float) -> str:
+@tool(response_format="content_and_artifact")
+def calculate_percentage_change(
+    old_value: float, new_value: float,
+) -> tuple[str, dict | None]:
     """Calculate the percentage change between two values.
 
     Formula: change = ((new_value - old_value) / old_value) * 100
@@ -71,18 +76,19 @@ def calculate_percentage_change(old_value: float, new_value: float) -> str:
         The percentage change with explanation.
     """
     if old_value == 0:
-        return "Error: old_value cannot be zero."
+        return "Error: old_value cannot be zero.", None
 
     change = ((new_value - old_value) / old_value) * 100
     direction = "increase" if change > 0 else "decrease"
-    return (
+    text = (
         f"Change from {old_value} to {new_value}: {change:+.2f}% ({direction})\n"
         f"Absolute change: {new_value - old_value:+.2f}"
     )
+    return text, {"old_value": old_value, "new_value": new_value}
 
 
-@tool
-def calculate_arithmetic(expression: str) -> str:
+@tool(response_format="content_and_artifact")
+def calculate_arithmetic(expression: str) -> tuple[str, dict | None]:
     """Evaluate a mathematical expression safely.
 
     Supports: +, -, *, /, **, (), and common math functions.
@@ -115,9 +121,9 @@ def calculate_arithmetic(expression: str) -> str:
         cleaned = expression.strip()
         for char in cleaned:
             if char not in allowed_chars and not char.isalpha():
-                return f"Error: Unsupported character '{char}' in expression."
+                return f"Error: Unsupported character '{char}' in expression.", None
 
         result = eval(cleaned, {"__builtins__": {}}, safe_names)  # noqa: S307
-        return f"{expression} = {result}"
+        return f"{expression} = {result}", {"expression": expression}
     except Exception as e:
-        return f"Error evaluating '{expression}': {str(e)}"
+        return f"Error evaluating '{expression}': {str(e)}", None

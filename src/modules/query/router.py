@@ -51,7 +51,6 @@ async def query_knowledge_base(
         ],
         confidence=confidence,
         confidence_reason=confidence_reason,
-        execution_trace=result.get("execution_trace", []),
     )
 
     return success_response(

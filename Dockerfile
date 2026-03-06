@@ -30,8 +30,8 @@ RUN useradd --create-home --shell /bin/bash app
 # Copy application code
 COPY . .
 
-# Change ownership to app user
-RUN chown -R app:app /app
+# Ensure upload directories exist and are owned by app user
+RUN mkdir -p /app/uploads/figures && chown -R app:app /app
 
 # Switch to non-root user
 USER app

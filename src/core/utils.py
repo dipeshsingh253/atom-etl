@@ -1,6 +1,5 @@
 from fastapi import Request
-from typing import Optional, Dict, Any
-from loguru import logger as _logger
+from typing import Optional
 
 from src.core.schemas import Meta, SuccessResponse, PaginationMeta
 

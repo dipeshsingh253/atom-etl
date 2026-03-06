@@ -7,8 +7,10 @@ from langchain_core.tools import tool
 from src.vectorstore import qdrant
 
 
-@tool
-async def retrieve_documents(query: str, document_id: Optional[str] = None) -> str:
+@tool(response_format="content_and_artifact")
+async def retrieve_documents(
+    query: str, document_id: Optional[str] = None,
+) -> tuple[str, list[dict]]:
     """Search the knowledge base for relevant text passages from ingested documents.
 
     Use this tool when you need to find narrative text, explanations, methodology
@@ -28,11 +30,13 @@ async def retrieve_documents(query: str, document_id: Optional[str] = None) -> s
     )
 
     if not results:
-        return "No relevant passages found in the knowledge base."
+        return "No relevant passages found in the knowledge base.", []
 
     formatted_parts: list[str] = []
+    artifacts: list[dict] = []
+
     for i, result in enumerate(results, 1):
-        page = result.get("page_number", "unknown")
+        page = result.get("page_number", 0)
         section = result.get("section", "")
         score = result.get("score", 0)
         content = result.get("content", "")
@@ -41,5 +45,11 @@ async def retrieve_documents(query: str, document_id: Optional[str] = None) -> s
         formatted_parts.append(
             f"[Result {i}] Page {page}{section_info} (relevance: {score:.3f}):\n{content}"
         )
+        artifacts.append({
+            "page_number": page if isinstance(page, int) else 0,
+            "content": content,
+            "score": score,
+            "section": section,
+        })
 
-    return "\n\n---\n\n".join(formatted_parts)
+    return "\n\n---\n\n".join(formatted_parts), artifacts

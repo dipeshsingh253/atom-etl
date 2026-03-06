@@ -1,4 +1,4 @@
-from typing import Any, Optional
+from typing import Optional
 
 from pydantic import BaseModel, Field
 
@@ -53,8 +53,4 @@ class QueryResponse(BaseModel):
     confidence_reason: str = Field(
         default="",
         description="Explanation of why this confidence score was assigned",
-    )
-    execution_trace: list[dict[str, Any]] = Field(
-        default_factory=list,
-        description="Step-by-step execution trace of the agent's reasoning",
     )

@@ -6,7 +6,7 @@ services:
     env_file:
       - .env.docker
     volumes:
-      - ./uploads:/app/uploads
+      - uploads:/app/uploads
     depends_on:
       postgres:
         condition: service_healthy
@@ -27,7 +27,7 @@ services:
     env_file:
       - .env.docker
     volumes:
-      - ./uploads:/app/uploads
+      - uploads:/app/uploads
     depends_on:
       postgres:
         condition: service_healthy
@@ -82,6 +82,7 @@ services:
       retries: 5
 
 volumes:
+  uploads:
   postgres_data:
   redis_data:
   qdrant_data:

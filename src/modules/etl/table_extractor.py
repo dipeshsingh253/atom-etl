@@ -110,11 +110,15 @@ def _clean_cell(cell) -> str:
         return ""
     return str(cell).strip().replace("\n", " ")
 
-# TODO: The table name inference is very basic. We can improve it by looking for specific patterns in the headers or even the surrounding text on the page. Also if required we can use LLM to generate a more descriptive name based on the content of the table and surrounding text.
 def _infer_table_name(
     headers: list[str], page_number: int, table_index: int
 ) -> str:
-    """Generate a descriptive table name from headers."""
+    """Generate a preliminary table name from headers.
+
+    This produces a raw fallback name. The LLM-based table enricher
+    (table_enricher.py) replaces it with a proper descriptive name
+    during ingestion.
+    """
     meaningful_headers = [h for h in headers if not h.startswith("column_")]
     if meaningful_headers:
         name_parts = meaningful_headers[:3]
