@@ -6,6 +6,7 @@ AtomETL is a PDF knowledge system with:
 - PostgreSQL for structured data
 - Qdrant for vector search
 - LangGraph agent for grounded answers with citations
+- Langsmith for tracing
 
 ## Tech Stack
 
