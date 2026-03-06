@@ -83,40 +83,137 @@ class AnswerMatcher:
         score = (len(exact) + 0.7 * len(stem_hits)) / len(self.words)
         return score, len(exact) + len(stem_hits)
 
-    def best_snippet(self, content: str, max_len: int = 250) -> str:
-        """Pick the most answer-relevant sentence from *content*."""
-        sentences = re.split(r"(?<=[.!?])\s+(?=[A-Z])", content)
-        sentences = [s.strip() for s in sentences if s.strip()]
-        if len(sentences) <= 1:
+    def best_snippet(self, content: str, max_len: int = 300) -> str:
+        """Pick the most answer-relevant sentence (or window) from *content*.
+
+        Strategy depends on how the chunk is structured:
+
+        Multiple segments
+            ``_split_segments()`` splits first on newlines (PDF text uses
+            newlines far more than sentence-ending punctuation), then on
+            ``.!?`` + uppercase boundary.  Each segment is scored by
+            ``_score_sentence()`` and the winner is returned.  If the winner
+            is very short (< 60 chars) it is merged with its neighbour to
+            provide context.
+
+        Single segment (blob)
+            Common when PDF extraction produces one long line with no
+            punctuation.  ``_best_window()`` slides a ``max_len``-wide window
+            across the text in steps of ``max_len // 5`` and picks the
+            position with the highest keyword density.
+
+        No keywords / no segments
+            Falls back to a plain truncation from the start.
+        """
+        segments = self._split_segments(content)
+        if not segments or not self.words:
             return self._truncate(content, max_len)
-        if not self.words:
-            return self._truncate(content, max_len)
+
+        if len(segments) == 1:
+            # Single block (common in PDF table dumps) – use sliding window
+            return self._best_window(content, max_len)
 
         best_idx, _ = max(
-            enumerate(self._score_sentence(s) for s in sentences),
+            enumerate(self._score_sentence(s) for s in segments),
             key=lambda pair: pair[1],
         )
-        best = sentences[best_idx]
+        best = segments[best_idx]
 
         # Merge with neighbour if the winning sentence is very short
-        if len(best) < 40 and len(sentences) > 1:
-            if best_idx + 1 < len(sentences):
-                best = best + " " + sentences[best_idx + 1]
+        if len(best) < 60 and len(segments) > 1:
+            if best_idx + 1 < len(segments):
+                best = best + " " + segments[best_idx + 1]
             elif best_idx - 1 >= 0:
-                best = sentences[best_idx - 1] + " " + best
+                best = segments[best_idx - 1] + " " + best
 
         return self._truncate(best, max_len)
 
     # -- private helpers ------------------------------------------------------
 
     def _score_sentence(self, sentence: str) -> float:
+        """Score a sentence against the answer keywords.
+
+        Keyword weights
+        ---------------
+        10.0 — numeric token with 3+ digits (e.g. ``7351``, ``17333``).
+               Specific multi-digit numbers are the strongest signal that a
+               sentence contains the exact claim being cited.  The answer
+               normalises ``7,351`` → ``7351`` so the match is reliable.
+               Example: answer has "7,351" → word "7351"; sentence "c. 7,351 staff" →
+               token "7351" → isdigit + len≥3 → +10.0
+        3.0  — numeric token with 1–2 digits (e.g. ``10``, ``22``).
+               Year fragments or small counts — meaningful but much more
+               common so weighted lower than long numbers.
+               Example: answer "10% growth" → word "10"; sentence "grew by 10%" →
+               token "10" → isdigit + len<3 → +3.0
+        1.0  — regular word exact match.
+               Example: answer token "security"; sentence has "security" → +1.0
+        0.7  — stem match (word not in exact set but stems to an answer stem).
+               Lower weight because stemming is fuzzy: two unrelated words can
+               occasionally collapse to the same root.
+               Example: answer has "Ireland" → stem "ireland"; sentence has
+               "Ireland's" → token "irelands" → stem "ireland" → match → +0.7
+
+        Length normalisation
+        --------------------
+        Score is divided by ``√(word_count)`` so long sentences are penalised
+        mildly.  Using the full word count (instead of √) would be too
+        aggressive — a 50-word sentence with 5 hits would score the same as a
+        5-word sentence with 1 hit.  Square root keeps the penalty gentle while
+        still preventing keyword-sparse walls of text from outscoring tight,
+        precise sentences.
+        Example: 4 hits in a 9-word sentence → 4/√9 = 1.33
+                 4 hits in a 36-word sentence → 4/√36 = 0.67  (same hits, lower score)
+        """
         words = set(re.findall(r"[a-z0-9]+", self._normalise(sentence)))
         exact = words & self.words
-        score = sum(3.0 if w.isdigit() else 1.0 for w in exact)
+        score = sum(
+            10.0 if (w.isdigit() and len(w) >= 3) else   # key claim numbers
+            3.0  if w.isdigit() else                      # short numbers
+            1.0  for w in exact
+        )
         remaining = {self._stem(w) for w in words if w not in exact}
         score += 0.7 * len(remaining & self.stems)
         norm = (len(words) ** 0.5) if words else 1.0
         return score / norm
+
+    @staticmethod
+    def _split_segments(text: str) -> list[str]:
+        """Split into meaningful segments, handling PDF formatting."""
+        parts: list[str] = []
+        for line in re.split(r"\n+", text):
+            line = line.strip()
+            if not line:
+                continue
+            # Further split on sentence boundaries
+            subs = re.split(r"(?<=[.!?])\s+(?=[A-Z])", line)
+            parts.extend(s.strip() for s in subs if s.strip())
+        return parts
+
+    def _best_window(self, text: str, max_len: int) -> str:
+        """Sliding-window extraction when the chunk is a single block."""
+        if len(text) <= max_len:
+            return text
+        normalised = self._normalise(text)
+        best_start, best_score = 0, -1.0
+        step = max(1, max_len // 5)
+        end = max(1, len(text) - max_len + 1)
+        for start in range(0, end, step):
+            window = normalised[start : start + max_len]
+            words = set(re.findall(r"[a-z0-9]+", window))
+            hits = words & self.words
+            score = sum(
+                10.0 if (w.isdigit() and len(w) >= 3) else
+                3.0  if w.isdigit() else
+                1.0  for w in hits
+            )
+            if score > best_score:
+                best_score = score
+                best_start = start
+        # Snap to word boundary
+        while best_start > 0 and text[best_start - 1].isalnum():
+            best_start -= 1
+        return self._truncate(text[best_start : best_start + max_len], max_len)
 
     @staticmethod
     def _normalise(text: str) -> str:
@@ -167,8 +264,42 @@ class AnswerMatcher:
 def _cite_retrieval(artifacts: list[dict], matcher: AnswerMatcher) -> list[dict]:
     """Build citations from ``retrieve_documents`` artifacts.
 
-    Applies a 3-gate relevance filter (vector score → keyword overlap →
-    combined) so only chunks that genuinely support the answer survive.
+    Each chunk returned by the vector DB passes through 3 sequential gates.
+    A chunk must clear ALL three to become a citation — failure at any gate
+    drops it immediately without evaluating the rest.
+
+    Gate 1 — Vector similarity (``_MIN_VECTOR_SCORE = 0.35``)
+        Qdrant returns a cosine similarity score in [0, 1].  Chunks below 0.35
+        are semantically distant from the *query* and almost never relevant to
+        the *answer*.  This gate is fast (no text processing) and kills the
+        most obvious noise.
+        Example: chunk about "data privacy legislation" scored 0.28 against a
+        query about "cyber security employment" → dropped here.
+
+    Gate 2 — Keyword overlap (``_MIN_KEYWORD_SCORE = 0.15``, ``_MIN_KEYWORD_HITS = 4``)
+        ``AnswerMatcher.keyword_relevance()`` counts how many of the answer's
+        keywords appear in the chunk (exact + stemmed).  The score is
+        normalised by answer-keyword count so it stays in [0, 1] regardless
+        of answer length.
+
+        Two thresholds are required *simultaneously*:
+        - ``score ≥ 0.15``: at least 15 % of the answer's keywords are present
+          (prevents passing on a single lucky hit in a big answer).
+          Example: answer has 20 keywords, chunk matches 2 → score=0.10 → fail.
+        - ``hits ≥ 4``: at least 4 distinct keyword matches (prevents a chunk
+          with one very-weighted number from passing on score alone).
+          Example: chunk contains only "7351" → score=10/20=0.50 but hits=1 → fail.
+
+    Gate 3 — Blended score (``_MIN_COMBINED_SCORE = 0.28``)
+        ``combined = vector * 0.4 + keyword * 0.6``
+
+        Keyword overlap is weighted 60 % because a chunk can be semantically
+        close to the *query* but not actually back up the *answer* (e.g. a
+        neighbouring paragraph on the same topic).  Keyword overlap directly
+        measures agreement with the answer text, so it deserves more weight.
+        The 40/60 split was calibrated empirically on the Cyber Ireland report.
+        Example: vector=0.55, keyword=0.08 → combined=0.55*0.4 + 0.08*0.6=0.27 → fail.
+                 vector=0.40, keyword=0.35 → combined=0.40*0.4 + 0.35*0.6=0.37 → pass.
     """
     citations: list[dict] = []
     for item in artifacts:

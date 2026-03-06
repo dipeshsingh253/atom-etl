@@ -6,6 +6,7 @@ Every agent step is logged with rich thought-process visibility.
 
 import os
 import time
+import uuid
 from typing import Annotated, Any, Optional, TypedDict
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
@@ -359,9 +360,13 @@ async def run_agent(
         "iteration_count": 0,
     }
 
+    # Generate a stable run ID so the caller can look up the trace in LangSmith.
+    run_id = uuid.uuid4()
+    _log_thought(0, f"Run ID: {run_id}")
+
     # Run the graph
     try:
-        final_state = await app.ainvoke(initial_state)
+        final_state = await app.ainvoke(initial_state, config={"run_id": run_id})
         answer = final_state.get("final_answer", "")
         citations = final_state.get("citations", [])
         total_iterations = final_state.get("iteration_count", 0)
@@ -373,11 +378,13 @@ async def run_agent(
         _log_thought(total_iterations, f"Iterations used: {total_iterations}")
         _log_thought(total_iterations, f"Answer length: {len(answer)} chars")
         _log_thought(total_iterations, f"Citations: {len(citations)} pages")
+        _log_thought(total_iterations, f"Run ID: {run_id}")
         logger.info(_SEPARATOR)
 
         return {
             "answer": answer,
             "citations": citations,
+            "langsmith_run_id": str(run_id),
         }
 
     except Exception as e:
@@ -389,4 +396,5 @@ async def run_agent(
         return {
             "answer": f"An error occurred while processing your query: {str(e)}",
             "citations": [],
+            "langsmith_run_id": str(run_id),
         }

@@ -43,6 +43,7 @@ async def query_knowledge_base(
             )
             for c in result.get("citations", [])
         ],
+        langsmith_run_id=result.get("langsmith_run_id"),
     )
 
     return success_response(

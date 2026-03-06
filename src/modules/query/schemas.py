@@ -44,3 +44,7 @@ class QueryResponse(BaseModel):
         default_factory=list,
         description="Source citations from the document",
     )
+    langsmith_run_id: Optional[str] = Field(
+        default=None,
+        description="LangSmith run ID — use this to find the trace in LangSmith",
+    )
