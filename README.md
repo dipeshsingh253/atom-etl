@@ -1,5 +1,7 @@
 # AtomETL
 
+Note: This README is intentionally concise and scannable for quick review.
+
 AtomETL is a PDF knowledge system with:
 - FastAPI API for ingestion and querying
 - async ETL pipeline for text/tables/visuals
